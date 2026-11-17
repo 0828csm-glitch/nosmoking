@@ -1,0 +1,2001 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>폐를 지켜라! - 흡연 예방 타워 디펜스</title>
+    <!-- Tailwind CSS 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Jua (친근하고 둥근 교육용 폰트) & Noto Sans KR -->
+    <link href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f0f9ff;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow-x: hidden;
+        }
+        .font-jua {
+            font-family: 'Jua', sans-serif;
+        }
+        /* 게임 캔버스 반응형 스타일 */
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border-radius: 1rem;
+            box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.08);
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        /* 폭죽 캔버스 오버레이 */
+        #fireworksCanvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            pointer-events: none;
+            z-index: 60;
+        }
+        /* 버튼 입체감 및 애니메이션 */
+        .game-btn {
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 0 rgba(0, 0, 0, 0.15);
+        }
+        .game-btn:active:not(:disabled) {
+            transform: translateY(3px);
+            box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15);
+        }
+        .tower-card {
+            transition: all 0.2s ease;
+        }
+        .tower-card.selected {
+            transform: translateY(-6px);
+            ring: 4px;
+            border-color: #0284c7;
+            background-color: #e0f2fe;
+            box-shadow: 0 10px 15px -3px rgba(2, 132, 199, 0.3);
+        }
+        @keyframes pulse-soft {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.04); }
+        }
+        .animate-pulse-soft {
+            animation: pulse-soft 2s infinite ease-in-out;
+        }
+        @keyframes float-up {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-30px); }
+        }
+        .toast-msg {
+            animation: float-up 1.5s forwards ease-out;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between bg-gradient-to-b from-sky-100 via-blue-50 to-emerald-50 text-slate-800">
+
+    <!-- 폭죽 전용 전체화면 캔버스 -->
+    <canvas id="fireworksCanvas"></canvas>
+
+    <!-- 상단 HUD (상태 표시줄) -->
+    <header class="w-full max-w-6xl mx-auto px-3 pt-3 pb-1 z-10">
+        <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md border-2 border-sky-200 p-2.5 sm:p-3.5 flex flex-wrap items-center justify-between gap-2">
+            
+            <!-- 게임 타이틀 & 레벨/웨이브 -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <div class="bg-sky-500 text-white px-3 py-1.5 rounded-xl font-jua text-lg sm:text-xl shadow-sm flex items-center gap-1.5">
+                    <span>🫁</span>
+                    <span>폐를 지켜라!</span>
+                </div>
+                <div class="bg-indigo-50 border border-indigo-200 px-3 py-1 rounded-xl">
+                    <div class="text-xs text-indigo-500 font-bold" id="hudLevelTitle">레벨 1: 호기심 단계</div>
+                    <div class="text-sm sm:text-base font-jua text-indigo-900" id="hudWaveText">웨이브 1 / 2</div>
+                </div>
+            </div>
+
+            <!-- 핵심 자원 & 점수 & 폐 건강도 -->
+            <div class="flex items-center gap-2 sm:gap-4 flex-wrap">
+                <!-- 산소 에너지 (자원) -->
+                <div class="flex items-center gap-1.5 bg-cyan-50 border border-cyan-200 px-3 py-1.5 rounded-xl" title="병사를 배치하는 데 필요한 산소 에너지">
+                    <span class="text-xl">🫧</span>
+                    <div>
+                        <div class="text-[10px] sm:text-xs text-cyan-600 font-bold leading-none">산소 에너지</div>
+                        <div class="text-base sm:text-lg font-jua text-cyan-800 leading-tight" id="hudEnergy">150</div>
+                    </div>
+                </div>
+
+                <!-- 점수 (해금 기준) -->
+                <div class="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl" title="점수가 쌓이면 새로운 방어 병사가 해금됩니다">
+                    <span class="text-xl">⭐</span>
+                    <div>
+                        <div class="text-[10px] sm:text-xs text-amber-600 font-bold leading-none">건강 점수</div>
+                        <div class="text-base sm:text-lg font-jua text-amber-800 leading-tight" id="hudScore">0</div>
+                    </div>
+                </div>
+
+                <!-- 폐 건강도 (HP) -->
+                <div class="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-xl min-w-[125px] sm:min-w-[150px]">
+                    <span class="text-xl" id="hudLungIcon">💗</span>
+                    <div class="w-full">
+                        <div class="flex justify-between text-[10px] sm:text-xs font-bold text-rose-600 mb-0.5">
+                            <span>폐 건강도</span>
+                            <span id="hudHpText">100 / 100</span>
+                        </div>
+                        <div class="w-full h-2.5 bg-rose-200 rounded-full overflow-hidden">
+                            <div id="hudHpBar" class="h-full bg-gradient-to-r from-rose-400 to-pink-500 transition-all duration-300" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 컨트롤 버튼 (도움말, 배속, 일시정지, 사운드) -->
+            <div class="flex items-center gap-1.5">
+                <button id="btnSpeed" onclick="toggleSpeed()" class="game-btn bg-amber-400 hover:bg-amber-500 text-amber-950 font-jua px-3 py-2 rounded-xl text-sm sm:text-base flex items-center gap-1" title="게임 속도 조절">
+                    <span>⏩</span> <span id="speedText">1x</span>
+                </button>
+                <button id="btnPause" onclick="togglePause()" class="game-btn bg-slate-200 hover:bg-slate-300 text-slate-800 font-jua px-3 py-2 rounded-xl text-sm sm:text-base" title="일시정지 / 계속하기">
+                    ⏸️
+                </button>
+                <button id="btnSound" onclick="toggleSound()" class="game-btn bg-sky-100 hover:bg-sky-200 text-sky-800 font-jua px-3 py-2 rounded-xl text-sm sm:text-base" title="효과음 켜기/끄기">
+                    🔊
+                </button>
+                <button onclick="openGuideModal()" class="game-btn bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-jua px-3 py-2 rounded-xl text-sm sm:text-base" title="유해 물질 및 병사 도감">
+                    📖
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 중앙 메인 게임 캔버스 영역 -->
+    <main class="flex-1 w-full max-w-6xl mx-auto px-3 py-2 flex flex-col items-center justify-center relative">
+        <div id="canvasContainer" class="w-full h-[52vh] sm:h-[58vh] min-h-[340px] max-h-[560px] bg-white rounded-2xl shadow-lg border-4 border-sky-200 relative overflow-hidden">
+            <canvas id="gameCanvas"></canvas>
+
+            <!-- 상단 안내 배너 (동적 알림) -->
+            <div id="bannerAlert" class="hidden absolute top-3 left-1/2 -translate-x-1/2 bg-slate-900/85 text-white px-5 py-2 rounded-full font-jua text-sm sm:text-base shadow-lg pointer-events-none z-20 whitespace-nowrap">
+                안내 메시지
+            </div>
+
+            <!-- 타워 업그레이드 / 판매 팝오버 (이미 배치된 타워 클릭 시) -->
+            <div id="towerActionMenu" class="hidden absolute z-30 bg-white/95 backdrop-blur-md border-2 border-sky-400 rounded-2xl shadow-xl p-3 w-52 text-center">
+                <div class="font-jua text-base text-slate-800 mb-0.5" id="actionTowerName">백혈구 병사 Lv.1</div>
+                <div class="text-xs text-slate-500 mb-2.5" id="actionTowerStats">공격력: 18 | 사거리: 보통</div>
+                <div class="flex gap-2 justify-center">
+                    <button id="btnUpgradeTower" onclick="upgradeSelectedExistingTower()" class="flex-1 game-btn bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:text-slate-500 text-white font-jua text-xs py-2 px-2 rounded-xl">
+                        ⬆️ 강화 (<span id="upgradeCostText">60</span>)
+                    </button>
+                    <button onclick="sellSelectedExistingTower()" class="game-btn bg-rose-100 hover:bg-rose-200 text-rose-700 font-jua text-xs py-2 px-2.5 rounded-xl">
+                        ♻️ 회수
+                    </button>
+                </div>
+                <button onclick="closeTowerActionMenu()" class="mt-2 text-[11px] text-slate-400 hover:text-slate-600 underline">닫기</button>
+            </div>
+        </div>
+    </main>
+
+    <!-- 하단 방어 병사(타워) 선택 패널 -->
+    <footer class="w-full max-w-6xl mx-auto px-3 pb-3 pt-1 z-10">
+        <div class="bg-white/95 backdrop-blur-sm rounded-2xl shadow-md border-2 border-sky-200 p-2.5 sm:p-3">
+            <div class="flex items-center justify-between mb-2 px-1">
+                <span class="font-jua text-sm sm:text-base text-slate-700 flex items-center gap-1.5">
+                    <span>🛡️ 방어 병사 배치</span>
+                    <span class="text-xs font-sans font-normal text-slate-500 hidden sm:inline">(병사를 선택한 뒤 맵의 반짝이는 거점 원을 클릭하세요!)</span>
+                </span>
+                <span id="selectedHint" class="text-xs font-bold text-sky-600">배치할 병사를 선택해주세요</span>
+            </div>
+
+            <!-- 4종 병사 카드 그리드 -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3" id="towerCardsContainer">
+                <!-- JS로 동적 렌더링 -->
+            </div>
+        </div>
+    </footer>
+
+    <!-- ==================== 모달 창들 ==================== -->
+
+    <!-- 1. 게임 시작 화면 모달 -->
+    <div id="startModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border-4 border-sky-300 text-center">
+            <div class="inline-block bg-sky-100 text-sky-700 font-bold text-xs px-3 py-1 rounded-full mb-2">
+                초·중등 흡연 예방 교육 게임
+            </div>
+            <h1 class="font-jua text-3xl sm:text-4xl text-sky-600 mb-2">🫁 폐를 지켜라!</h1>
+            <p class="text-slate-600 text-sm sm:text-base mb-5 leading-relaxed">
+                담배 연기, 타르, 니코틴으로부터 우리의 소중한 <strong>폐</strong>를 지켜주세요!<br>
+                건강 점수를 모아 새로운 방어 병사를 깨우고,<br>
+                친구의 흡연 유혹도 현명하게 거절해 보아요!
+            </p>
+
+            <div class="bg-sky-50 rounded-2xl p-4 text-left text-xs sm:text-sm text-slate-700 space-y-2 mb-6 border border-sky-100">
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">🫧</span>
+                    <span><strong>거점 배치:</strong> 하단에서 병사를 고른 뒤 길 주변 빈 원(+)을 클릭!</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">⭐</span>
+                    <span><strong>병사 해금:</strong> 점수가 오르면 <em>신선한 공기, 운동, 심호흡</em>이 열려요!</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-lg">🗣️</span>
+                    <span><strong>유혹 극복:</strong> 친구가 담배를 권할 때 단호하고 멋지게 거절해요!</span>
+                </div>
+            </div>
+
+            <button onclick="startGame()" class="w-full game-btn bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-jua text-xl py-3.5 rounded-2xl shadow-lg animate-pulse-soft">
+                게임 시작하기 🚀
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. 또래 압력(Peer Pressure) / 친구의 권유 이벤트 모달 -->
+    <div id="peerEventModal" class="hidden fixed inset-0 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border-4 border-amber-400">
+            <div class="flex items-center justify-between mb-3">
+                <span class="bg-amber-100 text-amber-800 font-jua text-sm px-3 py-1 rounded-full flex items-center gap-1">
+                    ⚠️ 긴급 상황! 친구의 유혹
+                </span>
+                <span class="text-xs font-bold text-slate-400">거절의 기술 테스트</span>
+            </div>
+
+            <!-- 친구 말풍선 영역 -->
+            <div class="bg-slate-100 rounded-2xl p-4 mb-5 relative border-2 border-slate-200 flex items-start gap-3">
+                <div class="text-4xl bg-white p-2 rounded-2xl shadow-sm shrink-0" id="peerAvatar">👦</div>
+                <div>
+                    <div class="font-bold text-xs text-slate-500 mb-1" id="peerName">친구의 권유</div>
+                    <p class="font-jua text-lg sm:text-xl text-slate-800 leading-snug" id="peerQuote">
+                        "야, 한 번만 피워봐. 요즘 애들 다 해. 너만 안 하면 왕따 된다?"
+                    </p>
+                </div>
+            </div>
+
+            <div class="text-xs font-bold text-slate-500 mb-2.5">나의 행동 선택하기:</div>
+
+            <!-- 3개 선택지 버튼 영역 -->
+            <div class="space-y-2.5" id="peerChoicesContainer">
+                <!-- JS에서 채움 -->
+            </div>
+
+            <!-- 선택 결과 피드백 영역 (선택 후 표시) -->
+            <div id="peerResultBox" class="hidden mt-4 p-4 rounded-2xl border-2 text-center">
+                <div class="text-3xl mb-1" id="peerResultIcon">🎉</div>
+                <div class="font-jua text-lg mb-1" id="peerResultTitle">멋진 거절입니다!</div>
+                <p class="text-xs sm:text-sm leading-relaxed mb-4" id="peerResultDesc">설명</p>
+                <button onclick="closePeerEvent()" class="w-full game-btn bg-sky-500 hover:bg-sky-600 text-white font-jua text-base py-2.5 rounded-xl">
+                    방어 계속하기 ▶️
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 레벨 클리어 안내 모달 -->
+    <div id="levelClearModal" class="hidden fixed inset-0 bg-slate-900/65 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-4 border-emerald-400 text-center">
+            <div class="text-5xl mb-2">🛡️✨</div>
+            <h2 class="font-jua text-2xl sm:text-3xl text-emerald-600 mb-2" id="levelClearTitle">레벨 1 클리어!</h2>
+            <p class="text-slate-600 text-sm sm:text-base mb-4 leading-relaxed" id="levelClearDesc">
+                호기심에서 시작된 담배 연기를 완벽하게 막아냈어요!
+            </p>
+            <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 mb-5 text-sm text-emerald-800 font-bold">
+                🎁 클리어 보너스: 산소 에너지 +80 & 폐 건강도 +15 회복!
+            </div>
+            <button onclick="startNextLevel()" class="w-full game-btn bg-emerald-500 hover:bg-emerald-600 text-white font-jua text-lg py-3 rounded-2xl">
+                다음 단계로 이동하기 ➡️
+            </button>
+        </div>
+    </div>
+
+    <!-- 4. 최종 승리 (축포 & 엔딩) 모달 -->
+    <div id="victoryModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+        <div class="bg-white/95 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border-4 border-amber-400 text-center relative overflow-hidden">
+            <div class="text-6xl mb-3 animate-bounce">🏆🫁🎊</div>
+            <div class="inline-block bg-amber-100 text-amber-800 font-bold text-xs px-3 py-1 rounded-full mb-2">
+                모든 유혹 극복 완료!
+            </div>
+            <h2 class="font-jua text-2xl sm:text-3xl text-sky-600 mb-3 leading-snug">
+                축하합니다!<br>유혹을 이겨내고 건강한 폐를 지켜냈어요!
+            </h2>
+            <p class="text-slate-600 text-sm sm:text-base mb-5 leading-relaxed">
+                담배의 해로움을 정확히 알고, 친구의 권유에도 당당히 <strong>"아니오!"</strong>라고 말할 수 있는 여러분이 진정한 건강 챔피언입니다!
+            </p>
+
+            <div class="grid grid-cols-2 gap-3 bg-sky-50 border border-sky-200 rounded-2xl p-4 mb-6">
+                <div>
+                    <div class="text-xs text-slate-500 font-bold">최종 건강 점수</div>
+                    <div class="font-jua text-2xl text-amber-600" id="finalScoreText">0점</div>
+                </div>
+                <div>
+                    <div class="text-xs text-slate-500 font-bold">남은 폐 건강도</div>
+                    <div class="font-jua text-2xl text-rose-500" id="finalHpText">100%</div>
+                </div>
+            </div>
+
+            <button onclick="restartGame()" class="w-full game-btn bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white font-jua text-xl py-3.5 rounded-2xl shadow-lg">
+                처음부터 다시하기 🔄
+            </button>
+        </div>
+    </div>
+
+    <!-- 5. 폐 건강 위기(재도전) 모달 (혹시라도 체력이 0이 되었을 때 교육적 재도전 제공) -->
+    <div id="retryModal" class="hidden fixed inset-0 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border-4 border-rose-400 text-center">
+            <div class="text-5xl mb-2">😷💨</div>
+            <h2 class="font-jua text-2xl text-rose-600 mb-2">폐가 연기로 힘들어하고 있어요!</h2>
+            <p class="text-slate-600 text-sm mb-5 leading-relaxed">
+                유해 물질이 너무 많이 들어왔지만 걱정하지 마세요!<br>
+                지금이라도 금연을 결심하고 신선한 공기를 마시면 폐는 다시 회복할 수 있어요!
+            </p>
+            <button onclick="retryCurrentLevel()" class="w-full game-btn bg-rose-500 hover:bg-rose-600 text-white font-jua text-lg py-3 rounded-2xl">
+                폐 회복하고 현재 레벨 다시 도전하기 💪
+            </button>
+        </div>
+    </div>
+
+    <!-- 6. 교육 도감 모달 -->
+    <div id="guideModal" class="hidden fixed inset-0 bg-slate-900/65 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 shadow-2xl border-4 border-sky-300">
+            <div class="flex justify-between items-center mb-4 pb-2 border-b">
+                <h2 class="font-jua text-2xl text-sky-700">📖 흡연 예방 교육 도감</h2>
+                <button onclick="closeGuideModal()" class="bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-xl font-bold text-slate-600">✕ 닫기</button>
+            </div>
+            
+            <div class="space-y-4 text-sm">
+                <div>
+                    <h3 class="font-jua text-lg text-rose-600 mb-2">⚠️ 담배 속 유해 물질 (적군)</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div class="font-bold text-slate-800">💨 담배 연기 (일산화탄소)</div>
+                            <p class="text-xs text-slate-600 mt-1">빠르게 폐로 침투해 산소 공급을 방해하고 머리를 어지럽게 해요.</p>
+                        </div>
+                        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div class="font-bold text-slate-800">🛢️ 타르 덩어리</div>
+                            <p class="text-xs text-slate-600 mt-1">끈적끈적한 검은 독성 물질로 폐를 까맣게 만들고 암을 유발해요.</p>
+                        </div>
+                        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div class="font-bold text-slate-800">🧪 니코틴 몬스터</div>
+                            <p class="text-xs text-slate-600 mt-1">중독을 일으키는 마약성 물질로 폐에 닿으면 아주 큰 피해를 줘요.</p>
+                        </div>
+                        <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                            <div class="font-bold text-slate-800">🌫️ 전자담배 연무</div>
+                            <p class="text-xs text-slate-600 mt-1">단순 수증기가 아니에요! 미세 유해 화학물질이 기습적으로 폐를 공격해요.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="font-jua text-lg text-sky-600 mb-2">🛡️ 우리의 건강한 방어 병사 (아군)</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div class="bg-sky-50 p-3 rounded-xl border border-sky-200">
+                            <div class="font-bold text-sky-900">⚪ 백혈구 병사 (기본 / 비용 50)</div>
+                            <p class="text-xs text-sky-700 mt-1">우리 몸의 면역 세포! 유해 물질을 정확히 조준해 물리칩니다.</p>
+                        </div>
+                        <div class="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                            <div class="font-bold text-emerald-900">🍃 신선한 공기 (100점 해금 / 비용 80)</div>
+                            <p class="text-xs text-emerald-700 mt-1">맑은 바람을 불어 주변 유해 물질의 이동 속도를 늦추고 정화합니다.</p>
+                        </div>
+                        <div class="bg-orange-50 p-3 rounded-xl border border-orange-200">
+                            <div class="font-bold text-orange-900">🏃 운동 파워 (250점 해금 / 비용 120)</div>
+                            <p class="text-xs text-orange-700 mt-1">활기찬 유산소 에너지파로 범위 내 타르와 니코틴을 강하게 날려버립니다.</p>
+                        </div>
+                        <div class="bg-indigo-50 p-3 rounded-xl border border-indigo-200">
+                            <div class="font-bold text-indigo-900">💧 물 마시기 / 심호흡 (400점 해금 / 비용 150)</div>
+                            <p class="text-xs text-indigo-700 mt-1">폐의 건강도(HP)를 주기적으로 회복시키고 주변 병사의 공격 속도를 높입니다.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 사운드 시스템 (Web Audio API - 외부 파일 불필요)
+        // ==========================================
+        class SoundManager {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) this.ctx = new AudioCtx();
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            playTone(freq, type, duration, vol = 0.1, slideFreq = null) {
+                if (this.muted) return;
+                this.init();
+                if (!this.ctx) return;
+
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                    if (slideFreq) {
+                        osc.frequency.exponentialRampToValueAtTime(slideFreq, this.ctx.currentTime + duration);
+                    }
+                    gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch (e) {}
+            }
+
+            playShoot(towerType) {
+                if (towerType === 'wbc') this.playTone(520, 'sine', 0.08, 0.05, 300);
+                else if (towerType === 'air') this.playTone(680, 'triangle', 0.12, 0.04, 880);
+                else if (towerType === 'exercise') this.playTone(220, 'sawtooth', 0.15, 0.06, 110);
+            }
+
+            playPop() {
+                this.playTone(400, 'sine', 0.1, 0.08, 750);
+            }
+
+            playPlace() {
+                this.playTone(330, 'triangle', 0.12, 0.12, 660);
+            }
+
+            playDamage() {
+                this.playTone(150, 'sawtooth', 0.25, 0.12, 80);
+            }
+
+            playSuccess() {
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((n, idx) => {
+                    setTimeout(() => this.playTone(n, 'triangle', 0.25, 0.12), idx * 110);
+                });
+            }
+
+            playFirework() {
+                this.playTone(250, 'sine', 0.3, 0.08, 900);
+                setTimeout(() => {
+                    this.playTone(120, 'sawtooth', 0.35, 0.1, 40);
+                }, 280);
+            }
+
+            playVictoryFanfare() {
+                const melody = [
+                    { f: 523.25, d: 0.15, t: 0 },
+                    { f: 659.25, d: 0.15, t: 150 },
+                    { f: 783.99, d: 0.15, t: 300 },
+                    { f: 1046.50, d: 0.4, t: 450 },
+                    { f: 783.99, d: 0.15, t: 880 },
+                    { f: 1046.50, d: 0.6, t: 1050 }
+                ];
+                melody.forEach(m => {
+                    setTimeout(() => this.playTone(m.f, 'triangle', m.d, 0.15), m.t);
+                });
+            }
+        }
+
+        const sound = new SoundManager();
+
+        // ==========================================
+        // 2. 교육용 게임 데이터 정의 (병사, 적, 레벨, 친구 유혹 시나리오)
+        // ==========================================
+        const TOWER_TYPES = {
+            wbc: {
+                id: 'wbc',
+                name: '백혈구 병사',
+                icon: '⚪',
+                cost: 50,
+                unlockScore: 0,
+                range: 0.17, // 캔버스 너비 비율
+                damage: 22,
+                cooldown: 0.65,
+                color: '#0284c7',
+                bgClass: 'bg-sky-50 border-sky-300',
+                desc: '기본 면역 수비수! 연기를 빠르게 공격'
+            },
+            air: {
+                id: 'air',
+                name: '신선한 공기',
+                icon: '🍃',
+                cost: 80,
+                unlockScore: 100,
+                range: 0.19,
+                damage: 10,
+                cooldown: 0.9,
+                slowFactor: 0.5, // 이동 속도 50% 감소
+                color: '#10b981',
+                bgClass: 'bg-emerald-50 border-emerald-300',
+                desc: '적 이동속도 감소 + 주변 연기 정화'
+            },
+            exercise: {
+                id: 'exercise',
+                name: '운동 파워',
+                icon: '🏃',
+                cost: 120,
+                unlockScore: 250,
+                range: 0.18,
+                damage: 42,
+                cooldown: 1.25,
+                aoeRadius: 0.11, // 범위 공격
+                color: '#f97316',
+                bgClass: 'bg-orange-50 border-orange-300',
+                desc: '강력한 범위 파동으로 타르·니코틴 제압'
+            },
+            breath: {
+                id: 'breath',
+                name: '물·심호흡',
+                icon: '💧',
+                cost: 150,
+                unlockScore: 400,
+                range: 0.19,
+                damage: 0,
+                cooldown: 3.5, // 주기적 폐 회복 & 버프
+                healAmount: 3,
+                color: '#6366f1',
+                bgClass: 'bg-indigo-50 border-indigo-300',
+                desc: '폐 HP 자동 회복 & 주변 병사 공속 25%↑'
+            }
+        };
+
+        const ENEMY_TYPES = {
+            smoke: {
+                id: 'smoke',
+                name: '담배 연기',
+                hp: 55,
+                speed: 0.085, // 초당 경로 진행 비율
+                damage: 8,
+                rewardEnergy: 18,
+                rewardScore: 20,
+                radius: 17,
+                color: '#94a3b8'
+            },
+            ecig: {
+                id: 'ecig',
+                name: '전자담배 연무',
+                hp: 65,
+                speed: 0.125, // 기습적으로 빠름
+                damage: 10,
+                rewardEnergy: 22,
+                rewardScore: 25,
+                radius: 16,
+                color: '#a855f7'
+            },
+            tar: {
+                id: 'tar',
+                name: '타르 덩어리',
+                hp: 170,
+                speed: 0.048, // 느리지만 튼튼함
+                damage: 14,
+                rewardEnergy: 30,
+                rewardScore: 35,
+                radius: 22,
+                color: '#334155'
+            },
+            nicotine: {
+                id: 'nicotine',
+                name: '니코틴 몬스터',
+                hp: 135,
+                speed: 0.078, // 중간 속도, 높은 피해
+                damage: 20,
+                rewardEnergy: 35,
+                rewardScore: 45,
+                radius: 20,
+                color: '#e11d48'
+            }
+        };
+
+        // 3단계 레벨 구성 (난이도가 점진적으로 올라가되 초·중학생이 충분히 클리어 가능한 밸런스)
+        const LEVELS = [
+            {
+                level: 1,
+                title: '레벨 1: 호기심 단계',
+                desc: '담배 연기의 첫 번째 유혹을 백혈구와 신선한 공기로 막아내세요!',
+                waves: [
+                    [
+                        { type: 'smoke', count: 5, interval: 1.8 }
+                    ],
+                    [
+                        { type: 'smoke', count: 7, interval: 1.4 }
+                    ]
+                ],
+                peerEventIndex: null // 레벨 1은 기본 조작 적응을 위해 이벤트 없음
+            },
+            {
+                level: 2,
+                title: '레벨 2: 유혹의 시작',
+                desc: '끈적한 타르와 기습적인 전자담배 연무가 나타납니다. 친구의 권유도 조심하세요!',
+                waves: [
+                    [
+                        { type: 'smoke', count: 5, interval: 1.3 },
+                        { type: 'tar', count: 2, interval: 2.2 }
+                    ],
+                    [
+                        { type: 'ecig', count: 5, interval: 1.2 },
+                        { type: 'tar', count: 3, interval: 2.0 },
+                        { type: 'smoke', count: 4, interval: 1.1 }
+                    ]
+                ],
+                peerEventIndex: 0 // 웨이브 1 종료 후 친구 권유 이벤트 1 발생
+            },
+            {
+                level: 3,
+                title: '레벨 3: 강한 또래 압력 극복',
+                desc: '중독성이 강한 니코틴 몬스터와 마지막 유혹을 이겨내면 승리합니다!',
+                waves: [
+                    [
+                        { type: 'smoke', count: 5, interval: 1.1 },
+                        { type: 'nicotine', count: 3, interval: 1.8 },
+                        { type: 'ecig', count: 4, interval: 1.2 }
+                    ],
+                    [
+                        { type: 'tar', count: 3, interval: 1.8 },
+                        { type: 'nicotine', count: 4, interval: 1.5 },
+                        { type: 'ecig', count: 5, interval: 1.0 }
+                    ]
+                ],
+                peerEventIndex: 1 // 웨이브 1 종료 후 친구 권유 이벤트 2 발생
+            }
+        ];
+
+        // 친구의 권유 / 또래 압력 시나리오 목록
+        const PEER_EVENTS = [
+            {
+                avatar: '👦',
+                name: '같은 반 친구의 권유',
+                quote: '"야, 한 번만 피워봐. 요즘 애들 다 해. 너만 안 하면 왕따 된다?"',
+                choices: [
+                    {
+                        text: '✋ "싫어! 담배는 내 건강을 해치니까 절대 안 피울 거야." (단호하게 거절)',
+                        type: 'best',
+                        resultTitle: '완벽한 단호한 거절입니다!',
+                        resultDesc: '자신의 생각을 분명하고 당당하게 말했어요! 진정한 친구는 담배를 강요하지 않아요. (산소 +90, 점수 +80, 폐 HP +15 회복)',
+                        energyBonus: 90,
+                        scoreBonus: 80,
+                        hpBonus: 15
+                    },
+                    {
+                        text: '⚽ "에이, 담배 말고 나랑 떡볶이 먹으러 가자! 축구 한 판 할래?" (화제 전환)',
+                        type: 'good',
+                        resultTitle: '센스 있는 거절이에요!',
+                        resultDesc: '분위기를 어색하지 않게 바꾸면서 건강한 활동으로 유혹을 잘 피했어요! (산소 +70, 점수 +60, 폐 HP +10 회복)',
+                        energyBonus: 70,
+                        scoreBonus: 60,
+                        hpBonus: 10
+                    },
+                    {
+                        text: '😥 "음... 왕따 되기 싫은데 한 번만 피워볼까..." (거절하지 못함)',
+                        type: 'bad',
+                        resultTitle: '연기가 폐로 들어왔어요! 하지만 지금이라도 멈출 수 있어요!',
+                        resultDesc: '호기심이나 친구 때문에 시작한 한 개비가 평생 중독으로 이어질 수 있어요. 지금 바로 거절하고 방어선을 강화해 만회해 봅시다!',
+                        spawnPenalty: true
+                    }
+                ]
+            },
+            {
+                avatar: '🧑',
+                name: '동네 선배의 유혹',
+                quote: '"이 전자담배는 과일 향 나는 수증기라 몸에 전혀 안 나빠. 스트레스도 싹 풀려!"',
+                choices: [
+                    {
+                        text: '🙅 "전자담배도 니코틴이랑 발암물질이 들어있대! 난 운동으로 스트레스 풀래."',
+                        type: 'best',
+                        resultTitle: '정확한 지식으로 유혹을 이겼어요!',
+                        resultDesc: '전자담배 역시 중독성 니코틴과 미세 유해물질이 가득합니다. 올바른 상식으로 자신을 지켰어요! (산소 +100, 점수 +100, 폐 HP +20 회복)',
+                        energyBonus: 100,
+                        scoreBonus: 100,
+                        hpBonus: 20
+                    },
+                    {
+                        text: '🏃 "아, 나 지금 학원 갈 시간이라 빨리 가봐야 해! 먼저 갈게!" (자리 피하기)',
+                        type: 'good',
+                        resultTitle: '현명하게 위험한 자리를 피했어요!',
+                        resultDesc: '유혹이 있는 자리에서 빠르게 벗어나는 것도 아주 훌륭한 거절의 기술입니다! (산소 +80, 점수 +70, 폐 HP +10 회복)',
+                        energyBonus: 80,
+                        scoreBonus: 70,
+                        hpBonus: 10
+                    },
+                    {
+                        text: '😶 "향도 좋고 수증기라니까 괜찮겠지... 한 모금만 해볼게." (유혹에 넘어감)',
+                        type: 'bad',
+                        resultTitle: '전자담배 연무가 폐로 들어왔어요! 하지만 지금이라도 멈출 수 있어요!',
+                        resultDesc: '달콤한 향 뒤에 숨은 니코틴이 폐를 공격하고 있어요! 잘못을 깨달았다면 언제든 다시 건강한 선택을 할 수 있습니다!',
+                        spawnPenalty: true
+                    }
+                ]
+            }
+        ];
+
+        // ==========================================
+        // 3. 게임 상태 및 캔버스 초기화
+        // ==========================================
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 경로 좌표 (0~1 비율로 정의하여 어떤 화면 크기에서도 완벽 적응)
+        const PATH_POINTS = [
+            { x: -0.04, y: 0.28 },
+            { x: 0.22, y: 0.28 },
+            { x: 0.22, y: 0.72 },
+            { x: 0.50, y: 0.72 },
+            { x: 0.50, y: 0.26 },
+            { x: 0.76, y: 0.26 },
+            { x: 0.76, y: 0.56 },
+            { x: 0.90, y: 0.56 } // 오른쪽 끝 '건강한 폐(성)' 위치
+        ];
+
+        // 타워 배치 거점 슬롯 (경로 주변 전략적 위치 9곳)
+        const TOWER_SLOTS_RATIO = [
+            { id: 0, x: 0.12, y: 0.46 },
+            { id: 1, x: 0.12, y: 0.13 },
+            { id: 2, x: 0.36, y: 0.48 },
+            { id: 3, x: 0.36, y: 0.86 },
+            { id: 4, x: 0.36, y: 0.16 },
+            { id: 5, x: 0.63, y: 0.48 },
+            { id: 6, x: 0.63, y: 0.13 },
+            { id: 7, x: 0.63, y: 0.80 },
+            { id: 8, x: 0.84, y: 0.38 }
+        ];
+
+        let state = {
+            started: false,
+            paused: true,
+            gameSpeed: 1,
+            levelIdx: 0,
+            waveIdx: 0,
+            energy: 150,
+            score: 0,
+            hp: 100,
+            maxHp: 100,
+            selectedTowerType: 'wbc',
+            selectedExistingTower: null,
+            towers: [],
+            enemies: [],
+            projectiles: [],
+            particles: [],
+            floatingTexts: [],
+            spawnQueue: [],
+            spawnTimer: 0,
+            waveInProgress: false,
+            waitingNextWaveTimer: 0,
+            lungHurtTimer: 0,
+            lungHealTimer: 0,
+            peerEventTriggeredInLevel: false,
+            victory: false
+        };
+
+        // ==========================================
+        // 4. 반응형 캔버스 리사이즈 처리
+        // ==========================================
+        function resizeCanvas() {
+            const container = document.getElementById('canvasContainer');
+            if (!container) return;
+            const rect = container.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            
+            // 폭죽 캔버스도 동기화
+            const fwCanvas = document.getElementById('fireworksCanvas');
+            fwCanvas.width = window.innerWidth * dpr;
+            fwCanvas.height = window.innerHeight * dpr;
+            fwCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+
+        function getLogicalSize() {
+            const container = document.getElementById('canvasContainer');
+            return {
+                w: container.clientWidth,
+                h: container.clientHeight
+            };
+        }
+
+        // ==========================================
+        // 5. UI 업데이트 및 카드 렌더링
+        // ==========================================
+        function updateHUD() {
+            const lvl = LEVELS[state.levelIdx];
+            document.getElementById('hudLevelTitle').textContent = lvl.title;
+            document.getElementById('hudWaveText').textContent = `웨이브 ${state.waveIdx + 1} / ${lvl.waves.length}`;
+            document.getElementById('hudEnergy').textContent = Math.floor(state.energy);
+            document.getElementById('hudScore').textContent = state.score;
+            document.getElementById('hudHpText').textContent = `${Math.max(0, Math.ceil(state.hp))} / ${state.maxHp}`;
+
+            const hpPercent = Math.max(0, Math.min(100, (state.hp / state.maxHp) * 100));
+            const hpBar = document.getElementById('hudHpBar');
+            const lungIcon = document.getElementById('hudLungIcon');
+            hpBar.style.width = `${hpPercent}%`;
+
+            if (hpPercent > 60) {
+                hpBar.className = 'h-full bg-gradient-to-r from-rose-400 to-pink-500 transition-all duration-300';
+                lungIcon.textContent = '💗';
+            } else if (hpPercent > 30) {
+                hpBar.className = 'h-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all duration-300';
+                lungIcon.textContent = '😮‍💨';
+            } else {
+                hpBar.className = 'h-full bg-gradient-to-r from-slate-500 to-slate-700 transition-all duration-300';
+                lungIcon.textContent = '😷';
+            }
+
+            renderTowerCards();
+        }
+
+        function renderTowerCards() {
+            const container = document.getElementById('towerCardsContainer');
+            container.innerHTML = '';
+
+            Object.values(TOWER_TYPES).forEach(t => {
+                const isUnlocked = state.score >= t.unlockScore;
+                const canAfford = state.energy >= t.cost;
+                const isSelected = state.selectedTowerType === t.id && isUnlocked;
+
+                const card = document.createElement('button');
+                card.type = 'button';
+                card.disabled = !isUnlocked;
+
+                let baseClasses = `tower-card relative text-left p-2.5 sm:p-3 rounded-xl border-2 flex flex-col justify-between `;
+                if (!isUnlocked) {
+                    baseClasses += `bg-slate-100 border-slate-200 opacity-75 cursor-not-allowed`;
+                } else if (isSelected) {
+                    baseClasses += `selected border-sky-500 bg-sky-50`;
+                } else {
+                    baseClasses += `${t.bgClass} hover:brightness-95 cursor-pointer`;
+                }
+                card.className = baseClasses;
+
+                if (isUnlocked) {
+                    card.onclick = () => {
+                        state.selectedTowerType = t.id;
+                        closeTowerActionMenu();
+                        document.getElementById('selectedHint').textContent = `[${t.name}] 선택됨 - 빈 거점을 클릭하세요!`;
+                        renderTowerCards();
+                    };
+                }
+
+                if (!isUnlocked) {
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="font-jua text-sm sm:text-base text-slate-500 flex items-center gap-1">
+                                <span>🔒</span> <span>${t.name}</span>
+                            </span>
+                        </div>
+                        <div class="text-xs font-bold text-amber-600 bg-amber-100/80 px-2 py-1 rounded-lg inline-block w-fit">
+                            ⭐ 점수 ${t.unlockScore}점 달성 해금
+                        </div>
+                    `;
+                } else {
+                    card.innerHTML = `
+                        <div class="flex items-center justify-between gap-1 mb-1">
+                            <span class="font-jua text-sm sm:text-base text-slate-800 flex items-center gap-1">
+                                <span class="text-lg sm:text-xl">${t.icon}</span>
+                                <span>${t.name}</span>
+                            </span>
+                            <span class="font-jua text-xs sm:text-sm px-2 py-0.5 rounded-lg ${canAfford ? 'bg-cyan-500 text-white' : 'bg-rose-100 text-rose-600'}">
+                                🫧 ${t.cost}
+                            </span>
+                        </div>
+                        <p class="text-[11px] text-slate-600 leading-tight line-clamp-2">${t.desc}</p>
+                    `;
+                }
+
+                container.appendChild(card);
+            });
+        }
+
+        function showBanner(msg, duration = 2200) {
+            const banner = document.getElementById('bannerAlert');
+            banner.textContent = msg;
+            banner.classList.remove('hidden');
+            clearTimeout(banner._timer);
+            banner._timer = setTimeout(() => {
+                banner.classList.add('hidden');
+            }, duration);
+        }
+
+        function addFloatingText(x, y, text, color = '#0284c7') {
+            state.floatingTexts.push({
+                x, y, text, color, life: 1.1
+            });
+        }
+
+        // ==========================================
+        // 6. 게임 진행 및 웨이브 제어
+        // ==========================================
+        function startGame() {
+            sound.init();
+            sound.playPop();
+            document.getElementById('startModal').classList.add('hidden');
+            resetStateForFullGame();
+            state.started = true;
+            state.paused = false;
+            startWave();
+            updateHUD();
+        }
+
+        function resetStateForFullGame() {
+            state.levelIdx = 0;
+            state.waveIdx = 0;
+            state.energy = 150;
+            state.score = 0;
+            state.hp = 100;
+            state.maxHp = 100;
+            state.selectedTowerType = 'wbc';
+            state.selectedExistingTower = null;
+            state.towers = [];
+            state.enemies = [];
+            state.projectiles = [];
+            state.particles = [];
+            state.floatingTexts = [];
+            state.spawnQueue = [];
+            state.waveInProgress = false;
+            state.peerEventTriggeredInLevel = false;
+            state.victory = false;
+            stopFireworks();
+        }
+
+        function restartGame() {
+            sound.playPop();
+            document.getElementById('victoryModal').classList.add('hidden');
+            resetStateForFullGame();
+            state.started = true;
+            state.paused = false;
+            startWave();
+            updateHUD();
+        }
+
+        function retryCurrentLevel() {
+            sound.playPop();
+            document.getElementById('retryModal').classList.add('hidden');
+            state.hp = 100;
+            state.energy = Math.max(state.energy, 160);
+            state.waveIdx = 0;
+            state.enemies = [];
+            state.projectiles = [];
+            state.spawnQueue = [];
+            state.peerEventTriggeredInLevel = false;
+            state.paused = false;
+            startWave();
+            updateHUD();
+            showBanner('💪 폐가 건강을 되찾았습니다! 다시 힘내서 막아보아요!');
+        }
+
+        function startWave() {
+            const lvl = LEVELS[state.levelIdx];
+            const waveGroups = lvl.waves[state.waveIdx];
+            state.spawnQueue = [];
+
+            let delayCursor = 0.8;
+            waveGroups.forEach(group => {
+                for (let i = 0; i < group.count; i++) {
+                    state.spawnQueue.push({
+                        type: group.type,
+                        delay: delayCursor
+                    });
+                    delayCursor += group.interval;
+                }
+            });
+
+            state.spawnTimer = 0;
+            state.waveInProgress = true;
+            updateHUD();
+            showBanner(`🚨 ${lvl.title} - 웨이브 ${state.waveIdx + 1} 시작!`);
+        }
+
+        function spawnEnemy(typeKey) {
+            const def = ENEMY_TYPES[typeKey];
+            state.enemies.push({
+                id: Math.random(),
+                type: typeKey,
+                name: def.name,
+                hp: def.hp,
+                maxHp: def.hp,
+                baseSpeed: def.speed,
+                damage: def.damage,
+                rewardEnergy: def.rewardEnergy,
+                rewardScore: def.rewardScore,
+                radius: def.radius,
+                color: def.color,
+                progress: 0, // 0 ~ 1 경로 진행률
+                slowTimer: 0,
+                wobble: Math.random() * Math.PI * 2
+            });
+        }
+
+        // 경로 진행률(0~1)을 실제 캔버스 (x, y) 좌표로 변환
+        function getPositionOnPath(progress) {
+            const { w, h } = getLogicalSize();
+            const pts = PATH_POINTS.map(p => ({ x: p.x * w, y: p.y * h }));
+
+            let totalLen = 0;
+            const segLens = [];
+            for (let i = 0; i < pts.length - 1; i++) {
+                const dx = pts[i + 1].x - pts[i].x;
+                const dy = pts[i + 1].y - pts[i].y;
+                const len = Math.hypot(dx, dy);
+                segLens.push(len);
+                totalLen += len;
+            }
+
+            const targetDist = Math.max(0, Math.min(1, progress)) * totalLen;
+            let acc = 0;
+            for (let i = 0; i < segLens.length; i++) {
+                if (acc + segLens[i] >= targetDist) {
+                    const segT = (targetDist - acc) / segLens[i];
+                    return {
+                        x: pts[i].x + (pts[i + 1].x - pts[i].x) * segT,
+                        y: pts[i].y + (pts[i + 1].y - pts[i].y) * segT
+                    };
+                }
+                acc += segLens[i];
+            }
+            return pts[pts.length - 1];
+        }
+
+        // ==========================================
+        // 7. 타워 배치, 업그레이드, 회수 상호작용
+        // ==========================================
+        canvas.addEventListener('click', (e) => {
+            if (!state.started || state.paused || state.victory) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+            const { w, h } = getLogicalSize();
+
+            // 1. 기존 배치된 타워 클릭 확인
+            for (const tower of state.towers) {
+                const tx = tower.ratioX * w;
+                const ty = tower.ratioY * h;
+                if (Math.hypot(clickX - tx, clickY - ty) <= 28) {
+                    openTowerActionMenu(tower, tx, ty);
+                    return;
+                }
+            }
+
+            closeTowerActionMenu();
+
+            // 2. 빈 거점 슬롯 클릭 확인
+            for (const slot of TOWER_SLOTS_RATIO) {
+                const sx = slot.x * w;
+                const sy = slot.y * h;
+                const isOccupied = state.towers.some(t => t.slotId === slot.id);
+                if (!isOccupied && Math.hypot(clickX - sx, clickY - sy) <= 28) {
+                    placeTowerAtSlot(slot);
+                    return;
+                }
+            }
+        });
+
+        function placeTowerAtSlot(slot) {
+            const def = TOWER_TYPES[state.selectedTowerType];
+            if (!def) return;
+
+            if (state.score < def.unlockScore) {
+                showBanner(`🔒 점수 ${def.unlockScore}점을 달성하면 해금됩니다!`);
+                return;
+            }
+            if (state.energy < def.cost) {
+                showBanner('🫧 산소 에너지가 부족해요! 적을 물리쳐 에너지를 모으세요.');
+                return;
+            }
+
+            state.energy -= def.cost;
+            state.towers.push({
+                id: Math.random(),
+                slotId: slot.id,
+                ratioX: slot.x,
+                ratioY: slot.y,
+                type: def.id,
+                level: 1,
+                totalInvested: def.cost,
+                cooldownTimer: 0,
+                pulseAnim: 0
+            });
+
+            sound.playPlace();
+            const { w, h } = getLogicalSize();
+            createBurstParticles(slot.x * w, slot.y * h, def.color, 12);
+            addFloatingText(slot.x * w, slot.y * h - 20, `${def.name} 배치!`, def.color);
+            updateHUD();
+        }
+
+        function openTowerActionMenu(tower, x, y) {
+            state.selectedExistingTower = tower;
+            const def = TOWER_TYPES[tower.type];
+            const menu = document.getElementById('towerActionMenu');
+            const upgradeCost = Math.round(def.cost * 0.8 * tower.level);
+
+            document.getElementById('actionTowerName').textContent = `${def.icon} ${def.name} Lv.${tower.level}`;
+            const dmgVal = Math.round(def.damage * (1 + (tower.level - 1) * 0.45));
+            document.getElementById('actionTowerStats').textContent = def.damage > 0 
+                ? `공격력: ${dmgVal} | 레벨 ${tower.level}/3` 
+                : `폐 회복량: +${def.healAmount + tower.level - 1} | 레벨 ${tower.level}/3`;
+
+            const btnUp = document.getElementById('btnUpgradeTower');
+            if (tower.level >= 3) {
+                btnUp.disabled = true;
+                btnUp.innerHTML = '⭐ 최고 레벨';
+            } else {
+                btnUp.disabled = state.energy < upgradeCost;
+                btnUp.innerHTML = `⬆️ 강화 (🫧${upgradeCost})`;
+            }
+
+            // 화면 밖으로 나가지 않게 좌표 보정
+            const { w, h } = getLogicalSize();
+            const left = Math.min(Math.max(10, x - 104), w - 218);
+            const top = y > h * 0.6 ? y - 125 : y + 32;
+
+            menu.style.left = `${left}px`;
+            menu.style.top = `${top}px`;
+            menu.classList.remove('hidden');
+        }
+
+        function closeTowerActionMenu() {
+            state.selectedExistingTower = null;
+            document.getElementById('towerActionMenu').classList.add('hidden');
+        }
+
+        function upgradeSelectedExistingTower() {
+            const tower = state.selectedExistingTower;
+            if (!tower || tower.level >= 3) return;
+            const def = TOWER_TYPES[tower.type];
+            const upgradeCost = Math.round(def.cost * 0.8 * tower.level);
+
+            if (state.energy < upgradeCost) return;
+
+            state.energy -= upgradeCost;
+            tower.level += 1;
+            tower.totalInvested += upgradeCost;
+            tower.pulseAnim = 1;
+
+            sound.playSuccess();
+            const { w, h } = getLogicalSize();
+            addFloatingText(tower.ratioX * w, tower.ratioY * h - 25, `Lv.${tower.level} 강화 성공!`, '#059669');
+            closeTowerActionMenu();
+            updateHUD();
+        }
+
+        function sellSelectedExistingTower() {
+            const tower = state.selectedExistingTower;
+            if (!tower) return;
+            const refund = Math.round(tower.totalInvested * 0.75);
+            state.energy += refund;
+            state.towers = state.towers.filter(t => t.id !== tower.id);
+
+            sound.playPop();
+            const { w, h } = getLogicalSize();
+            addFloatingText(tower.ratioX * w, tower.ratioY * h - 20, `+🫧${refund} 회수`, '#0284c7');
+            closeTowerActionMenu();
+            updateHUD();
+        }
+
+        // ==========================================
+        // 8. 친구의 권유 (또래 압력) 이벤트 처리
+        // ==========================================
+        function triggerPeerPressureEvent(eventIdx) {
+            state.paused = true;
+            closeTowerActionMenu();
+            const ev = PEER_EVENTS[eventIdx];
+
+            document.getElementById('peerAvatar').textContent = ev.avatar;
+            document.getElementById('peerName').textContent = ev.name;
+            document.getElementById('peerQuote').textContent = ev.quote;
+            document.getElementById('peerResultBox').classList.add('hidden');
+
+            const choicesContainer = document.getElementById('peerChoicesContainer');
+            choicesContainer.innerHTML = '';
+
+            ev.choices.forEach((choice) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'w-full text-left p-3.5 rounded-2xl border-2 border-slate-200 hover:border-sky-400 hover:bg-sky-50 font-medium text-xs sm:text-sm text-slate-800 transition-all shadow-xs';
+                btn.textContent = choice.text;
+                btn.onclick = () => handlePeerChoice(choice);
+                choicesContainer.appendChild(btn);
+            });
+
+            document.getElementById('peerEventModal').classList.remove('hidden');
+        }
+
+        function handlePeerChoice(choice) {
+            const choicesContainer = document.getElementById('peerChoicesContainer');
+            // 선택 후 버튼 비활성화
+            Array.from(choicesContainer.children).forEach(b => b.disabled = true);
+
+            const resBox = document.getElementById('peerResultBox');
+            const resIcon = document.getElementById('peerResultIcon');
+            const resTitle = document.getElementById('peerResultTitle');
+            const resDesc = document.getElementById('peerResultDesc');
+
+            resBox.classList.remove('hidden', 'bg-emerald-50', 'border-emerald-300', 'text-emerald-900', 'bg-amber-50', 'border-amber-300', 'text-amber-900');
+
+            if (choice.type === 'best' || choice.type === 'good') {
+                sound.playSuccess();
+                resBox.classList.add('bg-emerald-50', 'border-emerald-300', 'text-emerald-900');
+                resIcon.textContent = choice.type === 'best' ? '🌟' : '👍';
+                resTitle.textContent = choice.resultTitle;
+                resDesc.textContent = choice.resultDesc;
+
+                state.energy += choice.energyBonus;
+                state.score += choice.scoreBonus;
+                state.hp = Math.min(state.maxHp, state.hp + choice.hpBonus);
+                state.lungHealTimer = 1.5;
+            } else {
+                sound.playDamage();
+                resBox.classList.add('bg-amber-50', 'border-amber-300', 'text-amber-900');
+                resIcon.textContent = '⚠️';
+                resTitle.textContent = choice.resultTitle;
+                resDesc.textContent = choice.resultDesc;
+
+                // 소량의 담배 연기 스폰 (게임 오버로 직결되지 않고 충분히 만회 가능)
+                for (let i = 0; i < 3; i++) {
+                    setTimeout(() => spawnEnemy('smoke'), i * 600);
+                }
+            }
+
+            updateHUD();
+        }
+
+        function closePeerEvent() {
+            sound.playPop();
+            document.getElementById('peerEventModal').classList.add('hidden');
+            state.paused = false;
+            // 다음 웨이브 시작
+            startWave();
+        }
+
+        function startNextLevel() {
+            sound.playPop();
+            document.getElementById('levelClearModal').classList.add('hidden');
+            state.levelIdx += 1;
+            state.waveIdx = 0;
+            state.peerEventTriggeredInLevel = false;
+            state.paused = false;
+            startWave();
+            updateHUD();
+        }
+
+        // ==========================================
+        // 9. 게임 루프 및 전투 시뮬레이션
+        // ==========================================
+        function updateGame(dt) {
+            if (!state.started || state.paused || state.victory) return;
+
+            const stepDt = dt * state.gameSpeed;
+            const { w, h } = getLogicalSize();
+
+            // 폐 애니메이션 타이머 감소
+            if (state.lungHurtTimer > 0) state.lungHurtTimer = Math.max(0, state.lungHurtTimer - stepDt);
+            if (state.lungHealTimer > 0) state.lungHealTimer = Math.max(0, state.lungHealTimer - stepDt);
+
+            // 1. 웨이브 적 스폰 관리
+            if (state.waveInProgress) {
+                state.spawnTimer += stepDt;
+                while (state.spawnQueue.length > 0 && state.spawnTimer >= state.spawnQueue[0].delay) {
+                    const nextEnemy = state.spawnQueue.shift();
+                    spawnEnemy(nextEnemy.type);
+                }
+
+                // 모든 적이 스폰되고 화면의 적도 모두 처치되었을 때
+                if (state.spawnQueue.length === 0 && state.enemies.length === 0) {
+                    state.waveInProgress = false;
+                    const lvl = LEVELS[state.levelIdx];
+
+                    if (state.waveIdx + 1 < lvl.waves.length) {
+                        state.waveIdx += 1;
+                        // 레벨에 친구 권유 이벤트가 설정되어 있다면 웨이브 사이에 발동
+                        if (lvl.peerEventIndex !== null && !state.peerEventTriggeredInLevel) {
+                            state.peerEventTriggeredInLevel = true;
+                            triggerPeerPressureEvent(lvl.peerEventIndex);
+                            return;
+                        } else {
+                            startWave();
+                        }
+                    } else {
+                        // 현재 레벨의 모든 웨이브 클리어!
+                        if (state.levelIdx + 1 < LEVELS.length) {
+                            sound.playSuccess();
+                            state.paused = true;
+                            state.energy += 80;
+                            state.hp = Math.min(state.maxHp, state.hp + 15);
+                            updateHUD();
+
+                            const nextLvl = LEVELS[state.levelIdx + 1];
+                            document.getElementById('levelClearTitle').textContent = `🎉 ${lvl.title} 클리어!`;
+                            document.getElementById('levelClearDesc').textContent = `훌륭해요! 다음은 [${nextLvl.title}]입니다. ${nextLvl.desc}`;
+                            document.getElementById('levelClearModal').classList.remove('hidden');
+                        } else {
+                            // 최종 레벨 3 클리어 -> 승리 및 축포!
+                            triggerVictory();
+                        }
+                    }
+                }
+            }
+
+            // 2. 방어 병사(타워) 행동 업데이트
+            state.towers.forEach(tower => {
+                const def = TOWER_TYPES[tower.type];
+                const tx = tower.ratioX * w;
+                const ty = tower.ratioY * h;
+                const rangePx = def.range * w;
+
+                if (tower.pulseAnim > 0) tower.pulseAnim = Math.max(0, tower.pulseAnim - stepDt * 2);
+
+                // 주변 '물·심호흡' 지원 타워가 있는지 확인하여 공속 버프 적용
+                let speedMultiplier = 1;
+                if (tower.type !== 'breath') {
+                    const hasSupport = state.towers.some(other => {
+                        if (other.type !== 'breath') return false;
+                        const ox = other.ratioX * w;
+                        const oy = other.ratioY * h;
+                        return Math.hypot(tx - ox, ty - oy) <= TOWER_TYPES.breath.range * w;
+                    });
+                    if (hasSupport) speedMultiplier = 1.25;
+                }
+
+                tower.cooldownTimer -= stepDt * speedMultiplier;
+
+                if (tower.cooldownTimer <= 0) {
+                    if (tower.type === 'breath') {
+                        // 폐 체력 회복 지원
+                        if (state.hp < state.maxHp) {
+                            const heal = def.healAmount + (tower.level - 1);
+                            state.hp = Math.min(state.maxHp, state.hp + heal);
+                            state.lungHealTimer = 0.8;
+                            addFloatingText(w * 0.90, h * 0.44, `+${heal} HP`, '#ec4899');
+                            updateHUD();
+                        }
+                        tower.pulseAnim = 1;
+                        tower.cooldownTimer = def.cooldown;
+                    } else {
+                        // 사거리 내 가장 폐에 가까운(progress가 큰) 적 탐색
+                        let target = null;
+                        let maxProg = -1;
+                        state.enemies.forEach(en => {
+                            const pos = getPositionOnPath(en.progress);
+                            const dist = Math.hypot(pos.x - tx, pos.y - ty);
+                            if (dist <= rangePx && en.progress > maxProg) {
+                                maxProg = en.progress;
+                                target = en;
+                            }
+                        });
+
+                        if (target) {
+                            const dmg = Math.round(def.damage * (1 + (tower.level - 1) * 0.45));
+                            state.projectiles.push({
+                                x: tx,
+                                y: ty,
+                                targetId: target.id,
+                                speed: 460,
+                                damage: dmg,
+                                towerType: tower.type,
+                                color: def.color,
+                                aoeRadius: def.aoeRadius ? def.aoeRadius * w : 0,
+                                slowFactor: def.slowFactor || 0
+                            });
+                            tower.pulseAnim = 0.8;
+                            tower.cooldownTimer = def.cooldown;
+                            sound.playShoot(tower.type);
+                        }
+                    }
+                }
+            });
+
+            // 3. 투사체 이동 및 명중 처리
+            for (let i = state.projectiles.length - 1; i >= 0; i--) {
+                const p = state.projectiles[i];
+                const target = state.enemies.find(e => e.id === p.targetId);
+
+                if (!target) {
+                    state.projectiles.splice(i, 1);
+                    continue;
+                }
+
+                const tPos = getPositionOnPath(target.progress);
+                const dx = tPos.x - p.x;
+                const dy = tPos.y - p.y;
+                const dist = Math.hypot(dx, dy);
+
+                if (dist < 14) {
+                    // 명중!
+                    if (p.aoeRadius > 0) {
+                        // 범위 공격 (운동 파워)
+                        createBurstParticles(tPos.x, tPos.y, p.color, 14);
+                        state.enemies.forEach(en => {
+                            const ePos = getPositionOnPath(en.progress);
+                            if (Math.hypot(ePos.x - tPos.x, ePos.y - tPos.y) <= p.aoeRadius) {
+                                damageEnemy(en, p.damage, p.slowFactor);
+                            }
+                        });
+                    } else {
+                        createBurstParticles(tPos.x, tPos.y, p.color, 6);
+                        damageEnemy(target, p.damage, p.slowFactor);
+                    }
+                    state.projectiles.splice(i, 1);
+                } else {
+                    p.x += (dx / dist) * p.speed * stepDt;
+                    p.y += (dy / dist) * p.speed * stepDt;
+                }
+            }
+
+            // 4. 유해 물질(적) 이동 및 폐 도달 체크
+            for (let i = state.enemies.length - 1; i >= 0; i--) {
+                const en = state.enemies[i];
+                if (en.hp <= 0) {
+                    const pos = getPositionOnPath(en.progress);
+                    state.energy += en.rewardEnergy;
+                    state.score += en.rewardScore;
+                    sound.playPop();
+                    createBurstParticles(pos.x, pos.y, '#38bdf8', 10);
+                    addFloatingText(pos.x, pos.y - 12, `+⭐${en.rewardScore}`, '#d97706');
+                    state.enemies.splice(i, 1);
+                    updateHUD();
+                    continue;
+                }
+
+                if (en.slowTimer > 0) en.slowTimer = Math.max(0, en.slowTimer - stepDt);
+                const currentSpeed = en.slowTimer > 0 ? en.baseSpeed * 0.5 : en.baseSpeed;
+                en.progress += currentSpeed * stepDt;
+                en.wobble += stepDt * 6;
+
+                // 폐(성)에 도달했을 때
+                if (en.progress >= 1) {
+                    state.hp = Math.max(0, state.hp - en.damage);
+                    state.lungHurtTimer = 1.0;
+                    sound.playDamage();
+                    addFloatingText(w * 0.90, h * 0.45, `-${en.damage} 😷`, '#e11d48');
+                    state.enemies.splice(i, 1);
+                    updateHUD();
+
+                    if (state.hp <= 0) {
+                        state.paused = true;
+                        document.getElementById('retryModal').classList.remove('hidden');
+                        return;
+                    }
+                }
+            }
+
+            // 5. 파티클 및 플로팅 텍스트 업데이트
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                const pt = state.particles[i];
+                pt.x += pt.vx * stepDt;
+                pt.y += pt.vy * stepDt;
+                pt.life -= stepDt * 1.8;
+                if (pt.life <= 0) state.particles.splice(i, 1);
+            }
+
+            for (let i = state.floatingTexts.length - 1; i >= 0; i--) {
+                const ft = state.floatingTexts[i];
+                ft.y -= 28 * stepDt;
+                ft.life -= stepDt;
+                if (ft.life <= 0) state.floatingTexts.splice(i, 1);
+            }
+        }
+
+        function damageEnemy(enemy, amount, slowFactor) {
+            enemy.hp -= amount;
+            if (slowFactor > 0) {
+                enemy.slowTimer = 2.2;
+            }
+        }
+
+        function createBurstParticles(x, y, color, count) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 35 + Math.random() * 85;
+                state.particles.push({
+                    x, y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    color,
+                    size: 3 + Math.random() * 3,
+                    life: 1
+                });
+            }
+        }
+
+        // ==========================================
+        // 10. 캔버스 렌더링 (배경, 경로, 건강한 폐, 병사, 적)
+        // ==========================================
+        function drawGame() {
+            const { w, h } = getLogicalSize();
+            ctx.clearRect(0, 0, w, h);
+
+            // 배경 그리드 패턴 (밝고 깔끔한 교육 일러스트 느낌)
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, 0, w, h);
+
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.lineWidth = 1;
+            const gridSize = 36;
+            for (let x = 0; x < w; x += gridSize) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+            }
+            for (let y = 0; y < h; y += gridSize) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+            }
+
+            // 1. 유해 물질 이동 경로 그리기 (기관지 통로 느낌)
+            const pts = PATH_POINTS.map(p => ({ x: p.x * w, y: p.y * h }));
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
+            // 외곽 테두리
+            ctx.beginPath();
+            ctx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 44;
+            ctx.stroke();
+
+            // 내부 통로
+            ctx.beginPath();
+            ctx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+            ctx.strokeStyle = '#f1f5f9';
+            ctx.lineWidth = 34;
+            ctx.stroke();
+
+            // 점선 화살표 가이드
+            ctx.save();
+            ctx.setLineDash([8, 10]);
+            ctx.beginPath();
+            ctx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+            ctx.strokeStyle = '#94a3b8';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+
+            // 왼쪽 입구 표시 (담배 연기 유입구)
+            ctx.fillStyle = '#64748b';
+            ctx.font = 'bold 12px "Noto Sans KR"';
+            ctx.textAlign = 'left';
+            ctx.fillText('🚬 유해 연기 침입로 ➔', 10, pts[0].y - 28);
+
+            // 2. 타워 배치 거점 슬롯 그리기
+            TOWER_SLOTS_RATIO.forEach(slot => {
+                const sx = slot.x * w;
+                const sy = slot.y * h;
+                const isOccupied = state.towers.some(t => t.slotId === slot.id);
+
+                if (!isOccupied) {
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, 21, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(224, 242, 254, 0.85)';
+                    ctx.fill();
+                    ctx.lineWidth = 2.5;
+                    ctx.setLineDash([4, 4]);
+                    ctx.strokeStyle = '#38bdf8';
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+
+                    // '+' 아이콘
+                    ctx.fillStyle = '#0284c7';
+                    ctx.font = 'bold 18px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('+', sx, sy + 1);
+                }
+            });
+
+            // 3. 오른쪽 끝 '건강한 폐(성)' 일러스트 그리기
+            drawHealthyLungsCastle(w * 0.90, h * 0.56);
+
+            // 4. 배치된 방어 병사(타워) 그리기
+            state.towers.forEach(tower => {
+                const def = TOWER_TYPES[tower.type];
+                const tx = tower.ratioX * w;
+                const ty = tower.ratioY * h;
+
+                // 선택된 타워면 사거리 원 표시
+                if (state.selectedExistingTower && state.selectedExistingTower.id === tower.id) {
+                    ctx.beginPath();
+                    ctx.arc(tx, ty, def.range * w, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(14, 165, 233, 0.12)';
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(14, 165, 233, 0.5)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                }
+
+                // '물·심호흡' 오라 효과
+                if (tower.type === 'breath') {
+                    ctx.beginPath();
+                    ctx.arc(tx, ty, def.range * w, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(99, 102, 241, 0.06)';
+                    ctx.fill();
+                }
+
+                const scale = 1 + tower.pulseAnim * 0.2;
+                ctx.save();
+                ctx.translate(tx, ty);
+                ctx.scale(scale, scale);
+
+                // 받침대 원
+                ctx.beginPath();
+                ctx.arc(0, 0, 23, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = def.color;
+                ctx.stroke();
+
+                // 병사 이모지 아이콘
+                ctx.font = '24px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(def.icon, 0, 1);
+
+                // 레벨 뱃지
+                ctx.fillStyle = def.color;
+                ctx.beginPath();
+                ctx.roundRect(-14, 14, 28, 13, 6);
+                ctx.fill();
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 9px sans-serif';
+                ctx.fillText(`Lv.${tower.level}`, 0, 20.5);
+
+                ctx.restore();
+            });
+
+            // 5. 투사체 그리기
+            state.projectiles.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.towerType === 'exercise' ? 7 : 5, 0, Math.PI * 2);
+                ctx.fillStyle = p.color;
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1.5;
+                ctx.stroke();
+            });
+
+            // 6. 유해 물질(적) 그리기
+            state.enemies.forEach(en => {
+                const pos = getPositionOnPath(en.progress);
+                const bobY = Math.sin(en.wobble) * 3;
+
+                ctx.save();
+                ctx.translate(pos.x, pos.y + bobY);
+
+                // 적 본체 렌더링 (유형별 맞춤 일러스트)
+                if (en.type === 'smoke' || en.type === 'ecig') {
+                    // 구름/연기 형태
+                    ctx.fillStyle = en.type === 'ecig' ? 'rgba(168, 85, 247, 0.85)' : 'rgba(100, 116, 139, 0.88)';
+                    ctx.beginPath();
+                    ctx.arc(-6, 2, 11, 0, Math.PI * 2);
+                    ctx.arc(6, 2, 11, 0, Math.PI * 2);
+                    ctx.arc(0, -6, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (en.type === 'tar') {
+                    // 끈적한 검은 타르 덩어리
+                    ctx.fillStyle = '#1e293b';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, en.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#475569';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } else if (en.type === 'nicotine') {
+                    // 뾰족한 니코틴 몬스터
+                    ctx.fillStyle = '#e11d48';
+                    ctx.beginPath();
+                    for (let k = 0; k < 10; k++) {
+                        const r = k % 2 === 0 ? en.radius + 3 : en.radius - 4;
+                        const a = (k * Math.PI) / 5;
+                        if (k === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+                        else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                }
+
+                // 감속(신선한 공기) 상태 표시
+                if (en.slowTimer > 0) {
+                    ctx.strokeStyle = '#34d399';
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, en.radius + 4, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                // 심술궂은 표정 눈
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(-5, -2, 3, 0, Math.PI * 2);
+                ctx.arc(5, -2, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#0f172a';
+                ctx.beginPath();
+                ctx.arc(-5, -2, 1.5, 0, Math.PI * 2);
+                ctx.arc(5, -2, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 적 이름 & 체력바
+                const barW = 30;
+                const hpRatio = Math.max(0, en.hp / en.maxHp);
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+                ctx.fillRect(-barW / 2, -en.radius - 11, barW, 4);
+                ctx.fillStyle = hpRatio > 0.5 ? '#22c55e' : '#ef4444';
+                ctx.fillRect(-barW / 2, -en.radius - 11, barW * hpRatio, 4);
+
+                ctx.restore();
+            });
+
+            // 7. 파티클 & 플로팅 텍스트
+            state.particles.forEach(pt => {
+                ctx.globalAlpha = Math.max(0, pt.life);
+                ctx.fillStyle = pt.color;
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.globalAlpha = 1;
+
+            state.floatingTexts.forEach(ft => {
+                ctx.globalAlpha = Math.min(1, ft.life);
+                ctx.font = 'bold 13px "Jua", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillStyle = ft.color;
+                ctx.fillText(ft.text, ft.x, ft.y);
+            });
+            ctx.globalAlpha = 1;
+        }
+
+        // 오른쪽 끝 '건강한 폐(성)' 시각화 함수 (체력에 따라 색깔 및 표정 변화)
+        function drawHealthyLungsCastle(cx, cy) {
+            const hpRatio = state.hp / state.maxHp;
+            const breathe = Math.sin(Date.now() / 450) * 2.5;
+
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            // 성곽 받침대
+            ctx.fillStyle = '#e0f2fe';
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.roundRect(-42, -46, 84, 92, 20);
+            ctx.fill();
+            ctx.stroke();
+
+            // 체력에 따른 폐 색상 보간 (맑은 분홍색 -> 탁한 회갈색)
+            let lungColor = '#fb7185'; // 건강함 (맑은 핑크)
+            let borderColor = '#e11d48';
+            if (hpRatio <= 0.35) {
+                lungColor = '#64748b'; // 위험 (어두운 회색)
+                borderColor = '#334155';
+            } else if (hpRatio <= 0.65) {
+                lungColor = '#d97706'; // 주의 (탁한 주황갈색)
+                borderColor = '#92400e';
+            }
+
+            // 피격 시 흔들림
+            if (state.lungHurtTimer > 0) {
+                ctx.translate((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+            }
+
+            // 기관지(Trachea)
+            ctx.fillStyle = '#fda4af';
+            ctx.fillRect(-5, -34, 10, 22);
+
+            // 왼쪽 폐엽 & 오른쪽 폐엽 그리기
+            ctx.fillStyle = lungColor;
+            ctx.strokeStyle = borderColor;
+            ctx.lineWidth = 2.5;
+
+            // 좌폐
+            ctx.beginPath();
+            ctx.ellipse(-16, 4, 15 + breathe * 0.4, 24 + breathe * 0.5, -0.15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // 우폐
+            ctx.beginPath();
+            ctx.ellipse(16, 4, 15 + breathe * 0.4, 24 + breathe * 0.5, 0.15, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // 폐 상태 표정 아이콘
+            ctx.font = '18px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            if (state.lungHealTimer > 0) {
+                ctx.fillText('✨', 0, -24);
+            } else if (hpRatio <= 0.4) {
+                ctx.fillText('😷', 0, 5); // 기침/마스크 아이콘
+            } else {
+                ctx.fillText('😊', 0, 5);
+            }
+
+            // 하단 라벨
+            ctx.fillStyle = '#0f172a';
+            ctx.font = 'bold 11px "Jua", sans-serif';
+            ctx.fillText('건강한 폐', 0, 38);
+
+            ctx.restore();
+        }
+
+        // ==========================================
+        // 11. 최종 승리 및 화려한 폭죽(축포) 애니메이션
+        // ==========================================
+        const fwCanvas = document.getElementById('fireworksCanvas');
+        const fwCtx = fwCanvas.getContext('2d');
+        let fireworks = [];
+        let fwParticles = [];
+        let fwActive = false;
+        let fwSpawnInterval = null;
+
+        function triggerVictory() {
+            state.victory = true;
+            state.paused = true;
+            sound.playVictoryFanfare();
+
+            document.getElementById('finalScoreText').textContent = `${state.score}점`;
+            document.getElementById('finalHpText').textContent = `${Math.ceil(state.hp)}%`;
+            document.getElementById('victoryModal').classList.remove('hidden');
+
+            startFireworks();
+        }
+
+        function startFireworks() {
+            fwActive = true;
+            fireworks = [];
+            fwParticles = [];
+
+            // 즉시 3발 발사 후 주기적 축포 발사
+            for (let i = 0; i < 3; i++) launchFirework();
+            fwSpawnInterval = setInterval(() => {
+                if (!fwActive) return;
+                launchFirework();
+                if (Math.random() > 0.4) launchFirework();
+            }, 550);
+        }
+
+        function stopFireworks() {
+            fwActive = false;
+            clearInterval(fwSpawnInterval);
+            fireworks = [];
+            fwParticles = [];
+            fwCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        }
+
+        function launchFirework() {
+            const colors = ['#f43f5e', '#38bdf8', '#fbbf24', '#34d399', '#a855f7', '#fb923c'];
+            fireworks.push({
+                x: window.innerWidth * (0.15 + Math.random() * 0.7),
+                y: window.innerHeight,
+                targetY: window.innerHeight * (0.15 + Math.random() * 0.35),
+                speed: 550 + Math.random() * 200,
+                color: colors[Math.floor(Math.random() * colors.length)]
+            });
+            sound.playFirework();
+        }
+
+        function updateAndDrawFireworks(dt) {
+            if (!fwActive) return;
+            fwCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+            for (let i = fireworks.length - 1; i >= 0; i--) {
+                const fw = fireworks[i];
+                fw.y -= fw.speed * dt;
+
+                fwCtx.beginPath();
+                fwCtx.arc(fw.x, fw.y, 4, 0, Math.PI * 2);
+                fwCtx.fillStyle = fw.color;
+                fwCtx.fill();
+
+                if (fw.y <= fw.targetY) {
+                    // 폭발 파티클 생성
+                    for (let k = 0; k < 48; k++) {
+                        const angle = (Math.PI * 2 * k) / 48 + (Math.random() - 0.5) * 0.2;
+                        const spd = 80 + Math.random() * 220;
+                        fwParticles.push({
+                            x: fw.x,
+                            y: fw.y,
+                            vx: Math.cos(angle) * spd,
+                            vy: Math.sin(angle) * spd,
+                            color: fw.color,
+                            life: 1.0,
+                            size: 3 + Math.random() * 2.5
+                        });
+                    }
+                    fireworks.splice(i, 1);
+                }
+            }
+
+            for (let i = fwParticles.length - 1; i >= 0; i--) {
+                const p = fwParticles[i];
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+                p.vy += 180 * dt; // 중력
+                p.vx *= 0.98;
+                p.life -= dt * 0.85;
+
+                if (p.life <= 0) {
+                    fwParticles.splice(i, 1);
+                    continue;
+                }
+
+                fwCtx.globalAlpha = Math.max(0, p.life);
+                fwCtx.beginPath();
+                fwCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                fwCtx.fillStyle = p.color;
+                fwCtx.fill();
+            }
+            fwCtx.globalAlpha = 1;
+        }
+
+        // ==========================================
+        // 12. 상단 컨트롤 버튼 이벤트 (배속, 일시정지, 사운드, 도감)
+        // ==========================================
+        function toggleSpeed() {
+            sound.playPop();
+            state.gameSpeed = state.gameSpeed === 1 ? 2 : 1;
+            document.getElementById('speedText').textContent = `${state.gameSpeed}x`;
+            showBanner(`⏩ 게임 속도가 ${state.gameSpeed}배속으로 변경되었습니다.`);
+        }
+
+        function togglePause() {
+            if (!state.started || state.victory) return;
+            sound.playPop();
+            state.paused = !state.paused;
+            document.getElementById('btnPause').textContent = state.paused ? '▶️' : '⏸️';
+            if (state.paused) showBanner('⏸️ 게임이 일시정지되었습니다.');
+            else showBanner('▶️ 게임을 계속 진행합니다!');
+        }
+
+        function toggleSound() {
+            sound.muted = !sound.muted;
+            document.getElementById('btnSound').textContent = sound.muted ? '🔇' : '🔊';
+            if (!sound.muted) sound.playPop();
+        }
+
+        function openGuideModal() {
+            sound.playPop();
+            if (state.started && !state.paused) {
+                state._wasRunningBeforeGuide = true;
+                state.paused = true;
+            }
+            document.getElementById('guideModal').classList.remove('hidden');
+        }
+
+        function closeGuideModal() {
+            sound.playPop();
+            document.getElementById('guideModal').classList.add('hidden');
+            if (state._wasRunningBeforeGuide) {
+                state._wasRunningBeforeGuide = false;
+                state.paused = false;
+            }
+        }
+
+        // ==========================================
+        // 13. 메인 애니메이션 루프 시작
+        // ==========================================
+        let lastTime = 0;
+        function mainLoop(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            const dt = Math.min(0.05, (timestamp - lastTime) / 1000);
+            lastTime = timestamp;
+
+            updateGame(dt);
+            drawGame();
+            updateAndDrawFireworks(dt);
+
+            requestAnimationFrame(mainLoop);
+        }
+
+        window.onload = function () {
+            resizeCanvas();
+            updateHUD();
+            requestAnimationFrame(mainLoop);
+        };
+    </script>
+</body>
+</html>
